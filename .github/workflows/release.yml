@@ -28,17 +28,25 @@ jobs:
             exit 1
           fi
 
+      - name: 从 tag 注释生成发布说明
+        run: |
+          TAG="${{ github.ref_name }}"
+          # 直接从 git 读带注释 tag 的正文 —— 比 --generate-notes 可靠：
+          # 首次发布没有上一个 tag 可对比，生成出来是空的。
+          git fetch --tags --force
+          git tag -l --format='%(contents)' "$TAG" > /tmp/notes.md
+          echo "说明长度: $(wc -c < /tmp/notes.md) 字节"
+          head -5 /tmp/notes.md
+
       - name: 创建或更新 Release
         run: |
           TAG="${{ github.ref_name }}"
-          # 已有就更新，没有就创建。说明用「带注释 tag 里的那段话」，
-          # 比 --generate-notes 好 —— 首次发布没有上一个 tag 可对比，生成出来是空的。
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG 已存在，更新说明"
-            gh release edit "$TAG" --notes-from-tag --title "$TAG"
+            echo "Release $TAG 已存在，更新"
+            gh release edit "$TAG" --title "$TAG" --notes-file /tmp/notes.md
           else
             echo "创建 Release $TAG"
-            gh release create "$TAG" --title "$TAG" --notes-from-tag --verify-tag
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md --verify-tag
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
