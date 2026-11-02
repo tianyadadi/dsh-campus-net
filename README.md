@@ -2,6 +2,8 @@
 
 > 校园网（Srun 深澜）连接器 —— 给 DeepSeek Harness 侧边栏挂一只常驻小挂件：实时上下行速度、一键开关、开机自动连接。
 
+[![CI](https://github.com/tianyadadi/tianya/actions/workflows/ci.yml/badge.svg)](https://github.com/tianyadadi/tianya/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tianyadadi/tianya)](https://github.com/tianyadadi/tianya/releases)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4)
 ![dsh](https://img.shields.io/badge/DeepSeek%20Harness-plugin-111827)
