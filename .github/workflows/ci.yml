@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Python 语法检查（全部 py 文件）
+        run: |
+          fail=0
+          for f in $(find . -name '*.py' -not -path './.git/*'); do
+            python -m py_compile "$f" || fail=1
+          done
+          if [ "$fail" = "1" ]; then exit 1; fi
+          echo "所有 Python 文件语法通过"
+
+      - name: Node 语法检查（client.js / index.js）
+        run: |
+          node --check client.js
+          node --check index.js
+          echo "所有 Node 文件语法通过"
+
+      - name: 安全检查：敏感配置文件未被提交
+        run: |
+          # 只检查「哪些文件被 git 跟踪」，不比对任何真实凭据内容
+          if git ls-files | grep -E 'campus-net\.json$|campus-net\.state\.json$'; then
+            echo "敏感配置文件 campus-net.json / state.json 被提交了，必须移除"
+            exit 1
+          fi
+          echo "敏感配置文件未被提交"
+
+      - name: YAML 检查（cordis.patch.yml）
+        run: |
+          python -c "import yaml; yaml.safe_load(open('cordis.patch.yml')); print('cordis.patch.yml 有效')"
+
+      - name: 插件清单检查（package.json）
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open('package.json', encoding='utf-8'))
+          assert d.get('name') == 'dsh-campus-net', '包名不对'
+          assert 'main' in d, '缺 main'
+          assert d.get('dsh', {}).get('bundle', {}).get('patch'), '缺 dsh.bundle.patch'
+          print('package.json 有效')
+          PY
