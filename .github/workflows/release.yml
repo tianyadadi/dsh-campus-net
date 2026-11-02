@@ -28,15 +28,21 @@ jobs:
             exit 1
           fi
 
-      - name: 从 tag 注释生成发布说明
+      - name: 取发布说明
         run: |
           TAG="${{ github.ref_name }}"
-          # 直接从 git 读带注释 tag 的正文 —— 比 --generate-notes 可靠：
-          # 首次发布没有上一个 tag 可对比，生成出来是空的。
-          git fetch --tags --force
-          git tag -l --format='%(contents)' "$TAG" > /tmp/notes.md
+          # 优先用仓库里的 docs/release-notes/<tag>.md（可控、可审）；
+          # 没有就退回读 tag 注释。
+          if [ -f "docs/release-notes/${TAG}.md" ]; then
+            cp "docs/release-notes/${TAG}.md" /tmp/notes.md
+            echo "说明来源: docs/release-notes/${TAG}.md"
+          else
+            git fetch --tags --force
+            git tag -l --format='%(contents)' "$TAG" > /tmp/notes.md
+            echo "说明来源: git tag 注释"
+          fi
           echo "说明长度: $(wc -c < /tmp/notes.md) 字节"
-          head -5 /tmp/notes.md
+          head -3 /tmp/notes.md
 
       - name: 创建或更新 Release
         run: |
@@ -48,5 +54,7 @@ jobs:
             echo "创建 Release $TAG"
             gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md --verify-tag
           fi
+          echo "--- 回读确认 ---"
+          gh release view "$TAG" --json body,tagName --jq '.tagName + " | body长度=" + (.body|length|tostring)'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
