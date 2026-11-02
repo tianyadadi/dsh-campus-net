@@ -11,6 +11,8 @@ permissions:
 jobs:
   debug:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,15 +24,7 @@ jobs:
           exec > /tmp/debug.log 2>&1
           echo "=== 环境 ==="
           echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
-          echo "GITHUB_REF=$GITHUB_REF"
-          echo "PWD=$(pwd)"
-          echo "--- git remote ---"
-          git remote -v
-          echo "--- git describe ---"
-          git fetch --tags --force
-          git describe --tags --abbrev=0
-          echo "--- gh version ---"
-          gh --version
+          echo "GH_TOKEN 长度=${#GH_TOKEN}"
           echo "--- gh auth status ---"
           gh auth status
           echo "=== 现有 release ==="
@@ -40,15 +34,15 @@ jobs:
           echo "create 退出码: $?"
           echo "=== 创建后立刻查 ==="
           gh release list --limit 5
-          gh release view v0.1.0
+          gh release view v0.1.0 --json tagName,body --jq '"tag=" + .tagName + " bodyLen=" + (.body|length|tostring)'
           echo "view 退出码: $?"
           echo "=== 等 30 秒后再查 ==="
           sleep 30
           gh release list --limit 5
-          gh release view v0.1.0 --json tagName,body --jq '.tagName'
+          gh release view v0.1.0 --json tagName --jq '.tagName'
           echo "二次 view 退出码: $?"
           echo "=== 直接打 API ==="
-          gh api repos/$GITHUB_REPOSITORY/releases --jq 'length'
+          gh api "repos/$GITHUB_REPOSITORY/releases" --jq 'length'
 
       - name: 把日志写回仓库
         if: always()
@@ -59,5 +53,3 @@ jobs:
             -f message="debug: release 诊断日志" \
             -f content="$B64" \
             -f branch="debug-release" 2>&1 | head -3
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
