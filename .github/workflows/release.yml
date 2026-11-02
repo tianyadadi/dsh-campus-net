@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 # 用仓库自带的 GITHUB_TOKEN 创建 Release —— 不需要用户提供任何凭据
 permissions:
@@ -27,11 +28,17 @@ jobs:
             exit 1
           fi
 
-      - name: 创建 Release
+      - name: 创建或更新 Release
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            --verify-tag
+          TAG="${{ github.ref_name }}"
+          # 已有就更新，没有就创建。说明用「带注释 tag 里的那段话」，
+          # 比 --generate-notes 好 —— 首次发布没有上一个 tag 可对比，生成出来是空的。
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，更新说明"
+            gh release edit "$TAG" --notes-from-tag --title "$TAG"
+          else
+            echo "创建 Release $TAG"
+            gh release create "$TAG" --title "$TAG" --notes-from-tag --verify-tag
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
