@@ -1,0 +1,63 @@
+name: Debug Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [debug-release]
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 收集信息
+        run: |
+          set +e
+          exec > /tmp/debug.log 2>&1
+          echo "=== 环境 ==="
+          echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "PWD=$(pwd)"
+          echo "--- git remote ---"
+          git remote -v
+          echo "--- git describe ---"
+          git fetch --tags --force
+          git describe --tags --abbrev=0
+          echo "--- gh version ---"
+          gh --version
+          echo "--- gh auth status ---"
+          gh auth status
+          echo "=== 现有 release ==="
+          gh release list --limit 5
+          echo "=== 尝试创建 ==="
+          gh release create v0.1.0 --title "v0.1.0" --notes-file docs/release-notes/v0.1.0.md --verify-tag
+          echo "create 退出码: $?"
+          echo "=== 创建后立刻查 ==="
+          gh release list --limit 5
+          gh release view v0.1.0
+          echo "view 退出码: $?"
+          echo "=== 等 30 秒后再查 ==="
+          sleep 30
+          gh release list --limit 5
+          gh release view v0.1.0 --json tagName,body --jq '.tagName'
+          echo "二次 view 退出码: $?"
+          echo "=== 直接打 API ==="
+          gh api repos/$GITHUB_REPOSITORY/releases --jq 'length'
+
+      - name: 把日志写回仓库
+        if: always()
+        run: |
+          set +e
+          B64=$(base64 -w0 /tmp/debug.log)
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/debug-release.log" \
+            -f message="debug: release 诊断日志" \
+            -f content="$B64" \
+            -f branch="debug-release" 2>&1 | head -3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
