@@ -130,6 +130,21 @@ export function apply(ctx, config) {
       return sendJson(res, 200, await runCore(['network'], 25_000))
     }
 
+    /** 黑洞网卡：有默认路由但走不通（要把 UAC 提权也算进超时） */
+    if (req.method === 'GET' && path === '/api/campus-net/dead-path') {
+      return sendJson(res, 200, await runCore(['dead-path'], 30_000))
+    }
+
+    if (req.method === 'POST' && path === '/api/campus-net/fix-path') {
+      log('修黑洞网卡（抬跃点 + 清死 DNS）')
+      return sendJson(res, 200, await runCore(['fix-path'], 90_000))
+    }
+
+    if (req.method === 'POST' && path === '/api/campus-net/restore-path') {
+      log('还原网卡跃点')
+      return sendJson(res, 200, await runCore(['restore-path'], 90_000))
+    }
+
     if (req.method === 'GET' && path === '/api/campus-net/speed') {
       return sendJson(res, 200, await runCore(['speed'], 30_000))
     }

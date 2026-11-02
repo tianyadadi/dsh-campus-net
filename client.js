@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
 
     const API = '/api/campus-net'
     /** 每次改 client.js 就 +1，方便确认浏览器加载的是新代码 */
-    const BUILD = 6
+    const BUILD = 7
 
     /** 默认位置（像素，从视口左下角算）。可拖动覆盖。 */
     const DEFAULT_POS = { left: 10, bottom: 96 }
@@ -134,6 +134,16 @@ window.__ModuleLoader__.load({
       }),
       note: { marginTop: '8px', fontSize: '11px', color: '#7d8595', lineHeight: 1.5 },
       warn: { marginTop: '8px', fontSize: '11px', color: '#e0b341', lineHeight: 1.5 },
+      deadBox: {
+        marginTop: '9px', padding: '8px 9px', borderRadius: '9px',
+        background: 'rgba(224,179,65,.10)', border: '1px solid rgba(224,179,65,.34)',
+        color: '#e7c46a', fontSize: '11px', lineHeight: 1.55,
+      },
+      deadTitle: { fontWeight: 600, marginBottom: '2px' },
+      dotWarn: {
+        width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0,
+        background: '#e0b341', boxShadow: '0 0 7px rgba(224,179,65,.8)',
+      },
       errBox: { padding: '9px 11px', borderRadius: '9px', background: 'rgba(90,20,20,.9)', color: '#ffb4b4', fontSize: '11px', maxWidth: '240px' },
     }
 
@@ -302,6 +312,27 @@ window.__ModuleLoader__.load({
         setBusy('')
       }
 
+      /* 黑洞网卡：抬跃点 + 清死 DNS（会弹 UAC） */
+      const doFixPath = async () => {
+        setBusy('fix'); setMsg('')
+        try {
+          const r = await jpost('/fix-path', {}, 90000)
+          setMsg(r.ok ? (r.message || '已修好') : ('没修成：' + (r.error || '未知')))
+          await pullStatus()
+        } catch (e) { setMsg('没修成：' + (e.message || e)) }
+        setBusy('')
+      }
+
+      const doRestorePath = async () => {
+        setBusy('restore'); setMsg('')
+        try {
+          const r = await jpost('/restore-path', {}, 90000)
+          setMsg(r.ok ? (r.message || '已还原') : ('还原失败：' + (r.error || '未知')))
+          await pullStatus()
+        } catch (e) { setMsg('还原失败：' + (e.message || e)) }
+        setBusy('')
+      }
+
       const net = st && st.network ? st.network : null
       const id = netIdentity(net, Boolean(st && st.online))
       const campus = id.campus
@@ -309,6 +340,9 @@ window.__ModuleLoader__.load({
       const rx = sp ? sp.rx_bps : 0
       const tx = sp ? sp.tx_bps : 0
       const dotOn = campus ? online : Boolean(net && net.internet)
+      /* ⭐ 黑洞网卡：有默认路由却走不通的那张 —— 它是「transport failed」的元凶 */
+      const dead = st && st.dead_path && st.dead_path.present ? st.dead_path : null
+      const neutered = st && st.dead_path && st.dead_path.neutralized ? st.dead_path.neutralized : null
 
       /* 位置还没读出来时先不渲染，避免闪一下再跳 */
       if (!posReady) return null
@@ -326,7 +360,9 @@ window.__ModuleLoader__.load({
             h('span', { style: S.netName }, id.name),
             h('span', { style: S.speed }, '↓' + (sp ? fmt(rx) : '…')),
             h('span', { style: S.speed }, '↑' + (sp ? fmt(tx) : '…')),
-            h('span', { style: S.dot(dotOn) }),
+            dead
+              ? h('span', { style: S.dotWarn, title: '「' + dead.adapter + '」挂着默认路由但走不通，会害模型超时' })
+              : h('span', { style: S.dot(dotOn) }),
           ),
         )
       }
@@ -367,6 +403,32 @@ window.__ModuleLoader__.load({
 
           campus && st && st.username ? h('div', { style: S.row },
             h('span', null, '账号'), h('span', { style: S.rowVal(true) }, st.username)) : null,
+
+          dead ? h('div', { style: S.deadBox },
+            h('div', { style: S.deadTitle }, '⚠️ 「' + dead.adapter + '」是条黑洞'),
+            '它还挂在默认路由上（跃点 ' + dead.metric + '），但走不通。',
+            h('br'),
+            'WiFi 一抖，系统就把流量切给它，然后卡 10 秒 —— 模型那边就是 transport failed。',
+            h('br'),
+            h('span', { style: { color: '#9aa3b2' } },
+              '建议：抬跃点让它抢不过当前网络（会弹一次管理员授权）。'),
+          ) : null,
+
+          dead ? h('div', { style: S.btns },
+            h('button', {
+              style: S.btn(true, busy === 'fix'),
+              disabled: busy === 'fix',
+              onClick: doFixPath,
+            }, busy === 'fix' ? '处理中…（等授权）' : '修一下'),
+            h('button', {
+              style: S.btn(false, busy === 'restore'),
+              disabled: busy === 'restore',
+              onClick: doRestorePath,
+            }, busy === 'restore' ? '还原中…' : '还原跃点'),
+          ) : null,
+
+          !dead && neutered ? h('div', { style: S.note },
+            '已处理：' + neutered.join('、') + ' 的跃点被抬高，不会再抢网。') : null,
 
           h('div', { style: S.meter },
             h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '6px' } },
