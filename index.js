@@ -16,6 +16,8 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { createRetry } from './retry.js'
+
 export const name = 'campus-net'
 export const inject = []
 /** webServer 只在桌面/web 版存在，headless 里没有 —— 走 optional，缺了就不挂路由 */
@@ -98,6 +100,18 @@ function readBody(req) {
 export function apply(ctx, config) {
   const log = (m) => { try { ctx.logger?.info?.(`[campus-net] ${m}`) } catch { /* 没 logger 就算了 */ } }
 
+  /* ── 时间窗自动重试 ────────────────────────────────────────────────────
+   * 学校在非上网时段会返回「不允许上网时间段，请在上网时段认证」。
+   * 具体逻辑在 retry.js（抽出去是为了能单测，不用真等 10 分钟）。
+   */
+  const retryCtl = createRetry({
+    runEnsure: () => runCore(['ensure'], 60_000),
+    log,
+  })
+  const retryInfo = () => retryCtl.info()
+  const reactToResult = (r) => retryCtl.react(r)
+  const stopRetry = (why) => retryCtl.stop(why)
+
   const handle = async (req, res, url) => {
     if (req.method === 'OPTIONS') {
       sendJson(res, 204, {})
@@ -106,7 +120,10 @@ export function apply(ctx, config) {
     const path = url.pathname
 
     if (req.method === 'GET' && path === '/api/campus-net/status') {
-      return sendJson(res, 200, await runCore(['status'], 30_000))
+      const s = await runCore(['status'], 30_000)
+      // 把自动重试的进度并进 status，省得前端多开一个轮询
+      if (s && typeof s === 'object') s.auto_retry = retryInfo()
+      return sendJson(res, 200, s)
     }
 
     if (req.method === 'GET' && path === '/api/campus-net/ui') {
@@ -160,7 +177,16 @@ export function apply(ctx, config) {
 
     if (req.method === 'POST' && path === '/api/campus-net/login') {
       log('手动登录')
-      return sendJson(res, 200, await runCore(['login'], 45_000))
+      return sendJson(res, 200, reactToResult(await runCore(['login'], 45_000)))
+    }
+
+    if (req.method === 'POST' && path === '/api/campus-net/switch-account') {
+      const body = await readBody(req)
+      const which = body.index !== undefined ? String(body.index) : String(body.name || '')
+      log(`切换账号 → ${which}`)
+      const r = await runCore(['switch-account', which], 20_000)
+      if (r && r.ok) stopRetry('切号')
+      return sendJson(res, 200, r)
     }
 
     if (req.method === 'POST' && path === '/api/campus-net/logout') {
@@ -173,7 +199,7 @@ export function apply(ctx, config) {
     }
 
     if (req.method === 'POST' && path === '/api/campus-net/ensure') {
-      return sendJson(res, 200, await runCore(['ensure'], 45_000))
+      return sendJson(res, 200, reactToResult(await runCore(['ensure'], 45_000)))
     }
 
     return sendJson(res, 404, { ok: false, error: '没有这个接口' })
@@ -184,7 +210,10 @@ export function apply(ctx, config) {
     try {
       const t = setTimeout(() => {
         runCore(['ensure'], 60_000)
-          .then((r) => log(`启动自检：${r.action === 'none' ? '已在线' : (r.ok ? '已登录' : '登录失败：' + (r.detail || r.error || ''))}`))
+          .then((r) => {
+            log(`启动自检：${r.action === 'none' ? '已在线' : (r.ok ? '已登录' : '登录失败：' + (r.detail || r.error || ''))}`)
+            reactToResult(r)
+          })
           .catch(() => {})
       }, 8000)   // 等宿主和其它插件先起来
       t.unref?.()

@@ -1,10 +1,16 @@
 {
   "_说明": "把这个文件复制成 campus-net.json，填上自己的账号密码即可。",
   "_注意": "campus-net.json 已在 .gitignore 里，不会被提交到 Git。",
+  "_多账号": "有多个账号时，把下面 username/password 换成 accounts 数组 + current（序号从 0 开始）；只有一份账号时保持原样即可，插件会自动当成「默认」账号。",
   "portal": "2.2.2.2",
   "username": "你的学号或账号",
   "password": "你的密码",
   "autoConnect": true,
   "autoReconnectSeconds": 30,
-  "speedSampleMs": 1000
+  "speedSampleMs": 1000,
+  "_accounts示例": [
+    { "name": "宿舍", "username": "111", "password": "p1" },
+    { "name": "实验室", "username": "222", "password": "p2" }
+  ],
+  "_current示例": 0
 }

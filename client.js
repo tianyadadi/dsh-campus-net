@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
 
     const API = '/api/campus-net'
     /** 每次改 client.js 就 +1，方便确认浏览器加载的是新代码 */
-    const BUILD = 7
+    const BUILD = 8
 
     /** 默认位置（像素，从视口左下角算）。可拖动覆盖。 */
     const DEFAULT_POS = { left: 10, bottom: 96 }
@@ -140,6 +140,12 @@ window.__ModuleLoader__.load({
         color: '#e7c46a', fontSize: '11px', lineHeight: 1.55,
       },
       deadTitle: { fontWeight: 600, marginBottom: '2px' },
+      select: {
+        background: 'rgba(255,255,255,.06)', color: '#e6e8ee',
+        border: '1px solid rgba(255,255,255,.16)', borderRadius: '6px',
+        fontSize: '11px', padding: '2px 4px', maxWidth: '150px',
+        fontFamily: 'inherit', cursor: 'pointer',
+      },
       dotWarn: {
         width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0,
         background: '#e0b341', boxShadow: '0 0 7px rgba(224,179,65,.8)',
@@ -155,6 +161,25 @@ window.__ModuleLoader__.load({
       return (v / 1048576).toFixed(2) + ' MB/s'
     }
     const barW = (bps) => (Math.min(1, (Number(bps) || 0) / (10 * 1048576)) * 100)
+
+    /** 字节数 → 人能读的量级 */
+    const fmtBytes = (n) => {
+      const v = Number(n) || 0
+      if (v < 1024) return v.toFixed(0) + ' B'
+      if (v < 1048576) return (v / 1024).toFixed(1) + ' KB'
+      if (v < 1073741824) return (v / 1048576).toFixed(1) + ' MB'
+      return (v / 1073741824).toFixed(2) + ' GB'
+    }
+
+    /** 秒数 → 「2 小时 13 分」 */
+    const fmtDur = (sec) => {
+      const s = Math.max(0, Math.floor(Number(sec) || 0))
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      if (h > 0) return h + ' 小时 ' + m + ' 分'
+      if (m > 0) return m + ' 分钟'
+      return s + ' 秒'
+    }
 
     const KIND = {
       hotspot: { icon: '📱', label: '手机热点' },
@@ -333,6 +358,17 @@ window.__ModuleLoader__.load({
         setBusy('')
       }
 
+      /* 多账号：切号后立刻刷新状态（在线时切号不动当前会话，只影响下次登录） */
+      const doSwitchAccount = async (idx) => {
+        setBusy('switch'); setMsg('')
+        try {
+          const r = await jpost('/switch-account', { index: idx }, 20000)
+          setMsg(r.ok ? ('已切到「' + (r.name || r.username) + '」') : ('切号失败：' + (r.error || '未知')))
+          await pullStatus()
+        } catch (e) { setMsg('切号失败：' + (e.message || e)) }
+        setBusy('')
+      }
+
       const net = st && st.network ? st.network : null
       const id = netIdentity(net, Boolean(st && st.online))
       const campus = id.campus
@@ -343,6 +379,12 @@ window.__ModuleLoader__.load({
       /* ⭐ 黑洞网卡：有默认路由却走不通的那张 —— 它是「transport failed」的元凶 */
       const dead = st && st.dead_path && st.dead_path.present ? st.dead_path : null
       const neutered = st && st.dead_path && st.dead_path.neutralized ? st.dead_path.neutralized : null
+      const traffic = st && st.traffic && st.traffic.ok ? st.traffic : null
+      const accts = st && Array.isArray(st.accounts) ? st.accounts : []
+      const retry = st && st.auto_retry ? st.auto_retry : null
+      const retryMin = retry && retry.active && retry.nextAt
+        ? Math.max(0, Math.round((retry.nextAt - Date.now()) / 60000))
+        : 0
 
       /* 位置还没读出来时先不渲染，避免闪一下再跳 */
       if (!posReady) return null
@@ -401,8 +443,49 @@ window.__ModuleLoader__.load({
                 h('span', { style: S.rowVal(online) }, online ? '已连接' : '未连接'))
             : h('div', { style: S.warn }, '当前不在校园网（' + id.label + '）—— 连接/断开只对校园网有效'),
 
-          campus && st && st.username ? h('div', { style: S.row },
-            h('span', null, '账号'), h('span', { style: S.rowVal(true) }, st.username)) : null,
+          /* 账号：不在校园网时也该看得到用的是哪个号，不然切了号没反馈 */
+          (accts.length === 1 && accts[0] && accts[0].username) || (campus && st && st.username)
+            ? h('div', { style: S.row },
+                h('span', null, '账号'),
+                h('span', { style: S.rowVal(true) },
+                  (accts[0] && accts[0].username) || (st && st.username) || ''))
+            : null,
+
+          /* 在线时长 */
+          online && st && st.online_seconds ? h('div', { style: S.row },
+            h('span', null, '已连'),
+            h('span', { style: S.rowVal(true) }, fmtDur(st.online_seconds))) : null,
+
+          /* 多账号切换（只有一个账号时就直接显示上面那行） */
+          accts.length > 1 ? h('div', { style: S.row, 'data-no-drag': '1' },
+            h('span', null, '切换'),
+            h('select', {
+              style: S.select,
+              value: String(st && typeof st.current === 'number' ? st.current : 0),
+              disabled: busy === 'switch',
+              'data-no-drag': '1',
+              onChange: (e) => doSwitchAccount(Number(e.target.value)),
+            }, accts.map((a, ai) => h('option', { key: ai, value: String(ai) },
+              a.name + '（' + a.username + '）')))) : null,
+
+          /* 流量 */
+          traffic ? h('div', { style: S.row },
+            h('span', null, '今日'),
+            h('span', { style: S.rowVal(true) },
+              '↓' + fmtBytes(traffic.today_rx) + '  ↑' + fmtBytes(traffic.today_tx))) : null,
+          online && traffic ? h('div', { style: S.row },
+            h('span', null, '本次'),
+            h('span', { style: S.rowVal(true) },
+              '↓' + fmtBytes(traffic.session_rx) + '  ↑' + fmtBytes(traffic.session_tx))) : null,
+          traffic ? h('div', { style: S.row },
+            h('span', null, '开机以来'),
+            h('span', { style: { ...S.rowVal(true), color: '#7d8595' } },
+              '↓' + fmtBytes(traffic.boot_rx) + '  ↑' + fmtBytes(traffic.boot_tx))) : null,
+
+          /* 非上网时段：自动重试进度 */
+          retry && retry.active ? h('div', { style: S.warn },
+            '⏳ 现在是非上网时段，' + (retryMin > 0 ? retryMin + ' 分钟后' : '马上')
+            + '自动重试（第 ' + retry.attempts + '/' + retry.max + ' 次）') : null,
 
           dead ? h('div', { style: S.deadBox },
             h('div', { style: S.deadTitle }, '⚠️ 「' + dead.adapter + '」是条黑洞'),

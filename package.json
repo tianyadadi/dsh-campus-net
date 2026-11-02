@@ -1,17 +1,19 @@
 {
   "name": "dsh-campus-net",
-  "version": "0.2.0",
-  "description": "校园网（Srun 深澜）连接器：侧边栏小挂件，实时上下行速度、一键开关、开机自动连接、黑洞网卡检测。",
+  "version": "0.3.0",
+  "description": "校园网（Srun 深澜）连接器：侧边栏小挂件，实时上下行速度、一键开关、开机自动连接、黑洞网卡检测、流量统计、多账号、非上网时段自动重试。",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./retry": "./retry.js",
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
     "client.js",
+    "retry.js",
     "cordis.patch.yml",
     "core",
     "救急重连.cmd"

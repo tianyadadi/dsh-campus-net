@@ -36,6 +36,9 @@ DEFAULT_CONFIG = {
     "autoConnect": True,
     "autoReconnectSeconds": 30,
     "speedSampleMs": 1000,
+    # 多账号：accounts 为空时沿用上面的 username/password（老配置零迁移）
+    "accounts": [],
+    "current": 0,
     # 挂件位置（像素，从视口左下角算）。别人的 DSH 侧边栏高度可能不一样，
     # 所以这个值可以在界面上拖动调整，拖完写回这里。
     "widgetLeft": 10,
@@ -82,6 +85,88 @@ def save_state(**kw) -> None:
             json.dump(st, fh, ensure_ascii=False, indent=2)
     except OSError:
         pass
+
+
+# --------------------------------------------------------------------------- 多账号
+#
+# 老配置只有 username/password 两个字段，不能逼用户去改文件。
+# 规则：accounts 非空就用 accounts；为空就把 username/password 当成唯一账号。
+# 切号时会把选中的账号镜像回 username/password，这样「救急重连.cmd」等老调用方不用改。
+
+def _clean_accounts(raw) -> list[dict]:
+    out = []
+    for a in raw or []:
+        if not isinstance(a, dict):
+            continue
+        user = str(a.get("username") or "").strip()
+        if not user:
+            continue
+        out.append({
+            "name": str(a.get("name") or user).strip() or user,
+            "username": user,
+            "password": str(a.get("password") or ""),
+        })
+    return out
+
+
+def accounts(cfg: dict | None = None) -> list[dict]:
+    """所有可用账号。老配置会自动折成一条「默认」。"""
+    cfg = cfg or load_config()
+    acc = _clean_accounts(cfg.get("accounts"))
+    if acc:
+        return acc
+    user = str(cfg.get("username") or "").strip()
+    if user:
+        return [{"name": "默认", "username": user, "password": str(cfg.get("password") or "")}]
+    return []
+
+
+def _current_index(cfg: dict, total: int) -> int:
+    try:
+        i = int(cfg.get("current") or 0)
+    except (TypeError, ValueError):
+        i = 0
+    return i if 0 <= i < total else 0
+
+
+def active_account(cfg: dict | None = None) -> dict:
+    cfg = cfg or load_config()
+    acc = accounts(cfg)
+    if not acc:
+        return {"name": "", "username": "", "password": ""}
+    return acc[_current_index(cfg, len(acc))]
+
+
+def switch_account(which) -> dict:
+    """按序号（0 起）或名字/账号名切号。"""
+    cfg = load_config()
+    acc = accounts(cfg)
+    if not acc:
+        return {"ok": False, "error": "还没有账号，先在 campus-net.json 里填一个"}
+
+    idx = None
+    key = str(which).strip()
+    if key.isdigit():
+        i = int(key)
+        if 0 <= i < len(acc):
+            idx = i
+    if idx is None:
+        for i, a in enumerate(acc):
+            if key and key in (a["name"], a["username"]):
+                idx = i
+                break
+    if idx is None:
+        return {"ok": False, "error": "没有这个账号：%s" % key,
+                "accounts": [{"name": a["name"], "username": a["username"]} for a in acc]}
+
+    cfg["accounts"] = acc
+    cfg["current"] = idx
+    # 镜像回老字段，保持兼容
+    cfg["username"] = acc[idx]["username"]
+    cfg["password"] = acc[idx]["password"]
+    save_config(cfg)
+    return {"ok": True, "current": idx, "name": acc[idx]["name"],
+            "username": acc[idx]["username"]}
 
 
 # --------------------------------------------------------------------------- HTTP
@@ -227,6 +312,24 @@ def status(cfg: dict | None = None) -> dict:
             out["dead_path"] = dead_path()
         except Exception as e:
             out["dead_path"] = {"ok": False, "error": str(e)[:80]}
+        # 不在校园网 ⇒ 没有在线时长；顺手把上次的会话标记清掉
+        out["online_seconds"] = 0
+        out["online_since"] = ""
+        try:
+            clear_session()
+        except Exception:
+            pass
+        try:
+            out["traffic"] = traffic_report()
+        except Exception as e:
+            out["traffic"] = {"ok": False, "error": str(e)[:80]}
+        try:
+            acc = active_account(cfg)
+            out["account"] = {"name": acc.get("name", ""), "username": acc.get("username", "")}
+            out["accounts"] = [{"name": a["name"], "username": a["username"]} for a in accounts(cfg)]
+            out["current"] = _current_index(cfg, max(1, len(out["accounts"])))
+        except Exception as e:
+            out["account_error"] = str(e)[:80]
         save_state(last_status_at=now(), last_online=False)
         return out
 
@@ -239,6 +342,24 @@ def status(cfg: dict | None = None) -> dict:
         "host": disc.get("host", ""),
         "ts": now(),
     }
+    # 在线时长：第一次看到 online 就记会话起点，离线就清掉
+    try:
+        if online:
+            if not load_state().get("session_start"):
+                mark_session_start()
+            out["online_since"] = str(load_state().get("session_start") or "")
+            out["online_seconds"] = online_duration_seconds()
+        else:
+            clear_session()
+            out["online_seconds"] = 0
+            out["online_since"] = ""
+        # 加上当前账号名，面板要显示「用的是哪个号」
+        acc = active_account(cfg)
+        out["account"] = {"name": acc.get("name", ""), "username": acc.get("username", "")}
+        out["accounts"] = [{"name": a["name"], "username": a["username"]} for a in accounts(cfg)]
+        out["current"] = _current_index(cfg, max(1, len(out["accounts"])))
+    except Exception as e:
+        out["account_error"] = str(e)[:80]
     if disc.get("error"):
         out["error"] = disc["error"]
     if disc.get("note"):
@@ -261,8 +382,9 @@ def status(cfg: dict | None = None) -> dict:
 
 def login(cfg: dict | None = None) -> dict:
     cfg = cfg or load_config()
-    user = str(cfg.get("username") or "").strip()
-    pwd = str(cfg.get("password") or "").strip()
+    acc = active_account(cfg)
+    user = str(acc.get("username") or "").strip()
+    pwd = str(acc.get("password") or "").strip()
     if not user or not pwd:
         return {"ok": False, "error": "还没填账号密码"}
 
@@ -324,6 +446,11 @@ def login(cfg: dict | None = None) -> dict:
     ok = str(res.get("code")) == "0"
     save_state(last_login_at=now(), last_login_ok=ok,
                last_message=res.get("message", ""))
+    if ok:
+        try:
+            mark_session_start()        # 记下本次会话起点和流量基线
+        except Exception:
+            pass
     return {
         "ok": ok,
         "message": res.get("message", ""),
@@ -364,6 +491,8 @@ def logout(cfg: dict | None = None, auto_reconnect: int | None = None) -> dict:
         ok, msg = st == 200, body[:80]
 
     save_state(last_logout_at=now(), last_logout_ok=ok)
+    if ok:
+        clear_session()          # 断开即结束本次在线时长
 
     out = {"ok": ok, "message": msg}
     if ok and auto_reconnect > 0:
@@ -956,6 +1085,127 @@ def human_bps(bps: float) -> str:
     return "%.2f MB/s" % (bps / 1024 / 1024)
 
 
+# --------------------------------------------------------------------------- 流量统计
+#
+# 数据源是 `netstat -e` 的累计计数（全机聚合、自开机起），所以：
+#   * 「今日」「本次登录」都是靠前后两次采样做差
+#   * 计数变小 = 重启过，此时把当前值直接当增量，别算出天文数字
+#   * 采样有节流：30 秒内重复调用直接读缓存，不然面板每 3 秒轮询一次太重
+
+_TRAFFIC_MIN_INTERVAL = 30.0
+_TRAFFIC_KEEP_DAYS = 7
+
+
+def traffic_report(force: bool = False) -> dict:
+    st = load_state()
+    t = dict(st.get("traffic") or {})
+    now_ts = time.time()
+    last_ts = float(t.get("last_ts") or 0)
+
+    if force or (now_ts - last_ts) >= _TRAFFIC_MIN_INTERVAL:
+        c = _net_counters()
+        rx = int(c.get("rx") or 0)
+        tx = int(c.get("tx") or 0)
+        if c and (rx > 0 or tx > 0):
+            today = time.strftime("%Y-%m-%d")
+
+            if not t.get("last_ts"):
+                # 第一次采样：没有历史可比，只能把当前累计值当基线，
+                # 今日从 0 开始算 —— 否则会把「开机以来」整段算成「今天」。
+                t = {"day": today, "day_rx": 0, "day_tx": 0,
+                     "last_rx": rx, "last_tx": tx, "last_ts": now_ts,
+                     "days": {}, "via": c.get("via", "")}
+            else:
+                day = str(t.get("day") or today)
+                drx = int(t.get("day_rx") or 0)
+                dtx = int(t.get("day_tx") or 0)
+                days = dict(t.get("days") or {})
+
+                if day != today:                    # 跨天：把昨天归档
+                    days[day] = [drx, dtx]
+                    day, drx, dtx = today, 0, 0
+
+                last_rx = int(t.get("last_rx") or 0)
+                last_tx = int(t.get("last_tx") or 0)
+                dr = rx - last_rx if rx >= last_rx else rx      # 归零 ⇒ 重启过
+                dt = tx - last_tx if tx >= last_tx else tx
+                drx += max(0, dr)
+                dtx += max(0, dt)
+
+                if len(days) > _TRAFFIC_KEEP_DAYS:
+                    for k in sorted(days)[:-_TRAFFIC_KEEP_DAYS]:
+                        days.pop(k, None)
+
+                t = {
+                    "day": day, "day_rx": drx, "day_tx": dtx,
+                    "last_rx": rx, "last_tx": tx, "last_ts": now_ts,
+                    "days": days, "via": c.get("via", ""),
+                }
+            st["traffic"] = t
+            st["updated_at"] = now()
+            try:
+                with open(STATE, "w", encoding="utf-8") as fh:
+                    json.dump(st, fh, ensure_ascii=False, indent=2)
+            except OSError:
+                pass
+
+    cur_rx = int(t.get("last_rx") or 0)
+    cur_tx = int(t.get("last_tx") or 0)
+    s0rx = int(st.get("session_rx0") or 0)
+    s0tx = int(st.get("session_tx0") or 0)
+    sess_rx = cur_rx - s0rx if (s0rx and cur_rx >= s0rx) else 0
+    sess_tx = cur_tx - s0tx if (s0tx and cur_tx >= s0tx) else 0
+
+    days = t.get("days") or {}
+    return {
+        "ok": bool(t),
+        "today_rx": int(t.get("day_rx") or 0),
+        "today_tx": int(t.get("day_tx") or 0),
+        "day": t.get("day") or time.strftime("%Y-%m-%d"),
+        "boot_rx": cur_rx,
+        "boot_tx": cur_tx,
+        "session_rx": max(0, sess_rx),
+        "session_tx": max(0, sess_tx),
+        "days": [{"day": d, "rx": v[0], "tx": v[1]} for d, v in sorted(days.items(), reverse=True)],
+        "via": t.get("via", ""),
+        "ts": now(),
+    }
+
+
+def mark_session_start() -> None:
+    """登录成功那一刻记一笔，用来算「本次登录用了多少流量」。"""
+    c = _net_counters()
+    save_state(session_start=now(),
+               session_rx0=int(c.get("rx") or 0),
+               session_tx0=int(c.get("tx") or 0))
+
+
+def clear_session() -> None:
+    st = load_state()
+    if st.get("session_start"):
+        try:
+            st.pop("session_start", None)
+            st.pop("session_rx0", None)
+            st.pop("session_tx0", None)
+            st["updated_at"] = now()
+            with open(STATE, "w", encoding="utf-8") as fh:
+                json.dump(st, fh, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+
+
+def online_duration_seconds() -> int:
+    st = load_state()
+    start = str(st.get("session_start") or "")
+    if not start:
+        return 0
+    try:
+        t0 = time.mktime(time.strptime(start, "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        return 0
+    return max(0, int(time.time() - t0))
+
+
 def ensure_online(cfg: dict | None = None) -> dict:
     """开机自检：在线就什么都不做，离线就登录。"""
     cfg = cfg or load_config()
@@ -1024,9 +1274,28 @@ def main(argv: list[str]) -> int:
         print(json.dumps(restore_dead_path(dead_path(force=True)), ensure_ascii=False, indent=2))
     elif cmd == "discover":
         print(json.dumps(discover(), ensure_ascii=False, indent=2))
+    elif cmd in ("accounts", "account"):
+        cfg = load_config()
+        lst = accounts(cfg)
+        print(json.dumps({
+            "ok": True,
+            "current": _current_index(cfg, max(1, len(lst))),
+            "accounts": [{"name": a["name"], "username": a["username"]} for a in lst],
+        }, ensure_ascii=False, indent=2))
+    elif cmd in ("switch-account", "use"):
+        target = argv[1] if len(argv) > 1 else ""
+        if not target:
+            print(json.dumps({"ok": False, "error": "用法: switch-account <序号|名字>"}, ensure_ascii=False))
+            return 1
+        print(json.dumps(switch_account(target), ensure_ascii=False, indent=2))
+    elif cmd == "traffic":
+        print(json.dumps(traffic_report(force="--force" in argv), ensure_ascii=False, indent=2))
     elif cmd == "config":
         c = load_config()
         c["password"] = "***" if c.get("password") else ""
+        c["accounts"] = [{"name": a["name"], "username": a["username"],
+                          "password": "***" if a["password"] else ""}
+                         for a in _clean_accounts(c.get("accounts"))]
         print(json.dumps(c, ensure_ascii=False, indent=2))
     elif cmd == "doctor":
         checks = []
@@ -1045,7 +1314,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps({"ok": ok, "checks": checks}, ensure_ascii=False, indent=2))
         return 0 if ok else 1
     else:
-        print("用法: campus-net.py status|login|logout|ensure|speed|network|dead-path|fix-path|restore-path|ui|set-position|reset-position|discover|config|doctor")
+        print("用法: campus-net.py status|login|logout|ensure|speed|network|traffic|accounts|switch-account|dead-path|fix-path|restore-path|ui|set-position|reset-position|discover|config|doctor")
         return 1
     return 0
 
