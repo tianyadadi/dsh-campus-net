@@ -6,13 +6,15 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# 用仓库自带的 GITHUB_TOKEN 创建 Release —— 不需要用户提供任何凭据
+# 用仓库自带的 token 创建 Release —— 不需要用户提供任何凭据
 permissions:
   contents: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,6 +27,23 @@ jobs:
           TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "找到 tag: [$TAG]"
+
+      - name: 清理同名历史草稿
+        if: steps.find.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.find.outputs.tag }}"
+          # 反复失败的发布会留下同一 tag 的草稿，先按 id 清干净
+          IDS=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+                 --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" || true)
+          if [ -z "$IDS" ]; then
+            echo "没有需要清理的草稿"
+          else
+            for id in $IDS; do
+              echo "删除草稿 id=$id"
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" || true
+            done
+          fi
 
       - name: 确认版本号与 tag 一致
         if: steps.find.outputs.tag != ''
@@ -63,5 +82,6 @@ jobs:
 
           echo "--- 回读确认 ---"
           gh release view "$TAG" --json tagName,body --jq '"tag=" + .tagName + " body长度=" + (.body|length|tostring)'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "--- 全部 release（确认没草稿残留）---"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" \
+            --jq '.[] | .tag_name + " draft=" + (.draft|tostring)'
