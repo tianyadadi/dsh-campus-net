@@ -1,0 +1,21 @@
+# 运行时配置（含账号密码，绝不提交）
+core/campus-net.json
+core/campus-net.state.json
+
+# 运行时产物
+*.log
+core/lifecycle.log
+core/__pycache__/
+__pycache__/
+*.pyc
+
+# 依赖 / 系统
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,12 @@
+# ============================================================================
+# dsh-campus-net —— DSH bundle patch
+# ============================================================================
+# 装上之后，profile 只要在 `dsh.profile.bundles` 里列出本包名即生效：
+#   dsh plugin --profile desktop add link:E:/appsoftware/Deepseek/chajian/dsh-campus-net
+# ============================================================================
+
+- insert:
+    - id: campus-net
+      name: dsh-campus-net
+      config:
+        enabled: true
