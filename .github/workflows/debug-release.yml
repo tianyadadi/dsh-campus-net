@@ -49,7 +49,8 @@ jobs:
         run: |
           set +e
           B64=$(base64 -w0 /tmp/debug.log)
+          # 写 main 而不是 debug-release —— 后者会再次触发本工作流，形成死循环
           gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/debug-release.log" \
             -f message="debug: release 诊断日志" \
             -f content="$B64" \
-            -f branch="debug-release" 2>&1 | head -3
+            -f branch="main" 2>&1 | head -3
