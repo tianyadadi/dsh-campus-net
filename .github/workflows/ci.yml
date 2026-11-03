@@ -52,7 +52,54 @@ jobs:
 
       - name: YAML 检查（cordis.patch.yml）
         run: |
-          python -c "import yaml; yaml.safe_load(open('cordis.patch.yml')); print('cordis.patch.yml 有效')"
+          python - <<'PY'
+          import sys
+          import yaml
+
+          class Loader(yaml.SafeLoader):
+              pass
+
+          # Cordis 的 patch 方言里有 !!js 表达式（Loader 在运行时求值）。
+          # PyYAML 不认这个 tag，直接 safe_load 会报
+          # "could not determine a constructor for the tag 'tag:yaml.org,2002:js'"。
+          # 注册一个「当字符串」的构造器：结构照样校验，表达式不求值。
+          def _js(loader, node):
+              return '!!js:' + str(loader.construct_scalar(node))
+
+          Loader.add_constructor('tag:yaml.org,2002:js', _js)
+          Loader.add_multi_constructor('!', lambda l, suffix, n: l.construct_scalar(n))
+
+          try:
+              doc = yaml.load(open('cordis.patch.yml', encoding='utf-8'), Loader=Loader)
+          except yaml.YAMLError as e:
+              print('cordis.patch.yml 解析失败：')
+              print(e)
+              sys.exit(1)
+
+          if not isinstance(doc, list) or not doc:
+              print('顶层必须是非空数组（loader patch 列表）')
+              sys.exit(1)
+          print('cordis.patch.yml 有效，顶层 %d 条' % len(doc))
+
+          # 顺带校验形状，防手滑：每条要么有 insert（非空数组、每项带 id），要么自己带 id
+          for i, row in enumerate(doc):
+              if not isinstance(row, dict):
+                  print('第 %d 条不是映射' % i)
+                  sys.exit(1)
+              if 'insert' in row:
+                  rows = row['insert']
+                  if not isinstance(rows, list) or not rows:
+                      print('第 %d 条的 insert 必须是非空数组' % i)
+                      sys.exit(1)
+                  for j, r in enumerate(rows):
+                      if not isinstance(r, dict) or not r.get('id'):
+                          print('第 %d 条 insert[%d] 缺 id' % (i, j))
+                          sys.exit(1)
+              elif not row.get('id'):
+                  print('第 %d 条既没有 insert 也没有 id' % i)
+                  sys.exit(1)
+          print('每条的 insert / id 形状都正常')
+          PY
 
       - name: 插件清单检查（package.json）
         run: |
