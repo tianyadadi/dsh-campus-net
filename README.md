@@ -2,11 +2,33 @@
 
 > 校园网（Srun 深澜）连接器 —— 给 DeepSeek Harness 侧边栏挂一只常驻小挂件：实时上下行速度、一键开关、开机自动连接。
 
-[![CI](https://github.com/tianyadadi/tianya/actions/workflows/ci.yml/badge.svg)](https://github.com/tianyadadi/tianya/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/tianyadadi/tianya)](https://github.com/tianyadadi/tianya/releases)
+**Srun campus network (深澜) connector for DeepSeek Harness** — a persistent sidebar widget with real-time upload/download speed, one-click login/logout, auto-connect on boot, black-hole NIC detection, traffic stats, multi-account support and automatic retry outside allowed hours.
+
+`deepseek-harness` · `dsh-plugin` · `campus-network` · `srun` · `network-authentication` · `wifi` · `python` · `windows` · `cli`
+
+[![CI](https://github.com/tianyadadi/dsh-campus-net/actions/workflows/ci.yml/badge.svg)](https://github.com/tianyadadi/dsh-campus-net/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tianyadadi/dsh-campus-net)](https://github.com/tianyadadi/dsh-campus-net/releases)
+[![npm](https://img.shields.io/npm/v/dsh-campus-net)](https://www.npmjs.com/package/dsh-campus-net)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4)
 ![dsh](https://img.shields.io/badge/DeepSeek%20Harness-plugin-111827)
+
+## 目录
+
+- [安装前你需要准备这 3 样](#安装前你需要准备这-3-样)
+- [它长什么样](#它长什么样)
+- [功能](#功能)
+- [安装](#安装)
+- [命令行](#命令行)
+- [流量统计](#流量统计)
+- [多账号](#多账号)
+- [非上网时段自动重试](#非上网时段自动重试)
+- [黑洞网卡](#黑洞网卡)
+- [支持的认证系统](#支持的认证系统)
+- [架构](#架构)
+- [性能](#性能)
+- [已知限制](#已知限制)
+- [安全](#安全)
 
 ---
 
@@ -29,6 +51,8 @@
 ## 它长什么样
 
 折叠态（侧边栏左下角，账号头像上方）：
+
+![折叠态](docs/widget.png)
 
 ```
 📱 OnePlus Ace 5 Ultra   ↓227.7 KB/s  ↑41.2 KB/s   ●
@@ -80,15 +104,40 @@ IP          192.168.191.26
 
 ### 1. 装插件
 
+**从 npm 安装（推荐）**：
+
+```bash
+dsh plugin --profile desktop add dsh-campus-net
+```
+
+**从 GitHub 安装**：
+
+```bash
+dsh plugin --profile desktop add github:tianyadadi/dsh-campus-net
+```
+
+**本地开发（改了代码要热更）**：
+
 ```bash
 dsh plugin --profile desktop add link:<本目录绝对路径>
 ```
 
-或者直接从 npm / GitHub 装（见 Releases）。
-
 ### 2. 重启 DSH
 
 bundle 层要重启才组装。
+
+### 3. 验证是否装好
+
+重启后看两点：
+
+1. **侧边栏左下角**（账号头像上方）出现挂件
+2. 命令行自检通过：
+
+```bash
+python core/campus_net.py doctor
+```
+
+没出现的话，先看 DSH 日志里有没有 `dsh-campus-net` 的加载错误。
 
 ### 3. 填账号
 
@@ -106,7 +155,7 @@ bundle 层要重启才组装。
 
 > 这个文件在 `.gitignore` 里，**不会被提交**。
 
-### 4. 也可以用命令行
+## 命令行
 
 ```bash
 python core/campus_net.py status    # 查状态
