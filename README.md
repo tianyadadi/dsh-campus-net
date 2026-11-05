@@ -29,6 +29,7 @@
 - [性能](#性能)
 - [已知限制](#已知限制)
 - [安全](#安全)
+- [更新日志](#更新日志)
 
 ---
 
@@ -319,6 +320,16 @@ dsh-campus-net/
 - 提供不依赖 DSH 的救急脚本
 
 ---
+
+## 更新日志
+
+| 版本 | 日期 | 要点 |
+|---|---|---|
+| [v0.3.0](docs/release-notes/v0.3.0.md) | 2026-11-03 | 多账号切换、非上网时段自动重试、流量统计 |
+| [v0.2.0](docs/release-notes/v0.2.0.md) | 2026-11-02 | 黑洞网卡检测（挂着默认路由却走不通的网卡） |
+| [v0.1.0](docs/release-notes/v0.1.0.md) | 2026-11-02 | 首个版本 |
+
+完整列表见 [Releases](https://github.com/tianyadadi/dsh-campus-net/releases)。
 
 ## License
 
