@@ -524,6 +524,11 @@ window.__ModuleLoader__.load({
             h('div', { style: S.bar }, h('div', { style: S.fill(barW(tx), 'linear-gradient(90deg,#a855f7,#ec4899)') })),
           ),
 
+          // 未认证时也有流量（局域网/门户），别让人误以为「已经有网了」
+          online ? null : h('div', {
+            style: { fontSize: '10.5px', color: '#7b8ea6', marginTop: '4px', lineHeight: 1.6 }
+          }, '上面是网卡实际收发的流量；认证成功前也会走数据，不能当「已联网」。'),
+
           h('div', { style: S.btns },
             online
               ? h('button', {

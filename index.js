@@ -205,19 +205,37 @@ export function apply(ctx, config) {
     return sendJson(res, 404, { ok: false, error: '没有这个接口' })
   }
 
-  /** 开机/启动时自动连一次（不阻塞启动） */
+  /** 开机/启动时自动连；失败就退避重试
+   *
+   * 2026-11-06 的坑：原来只在启动 8 秒后试一次，失败就永久放弃。
+   * 开机那会儿网卡刚拿到 IP、门户还没就绪，探测经常超时，于是「开机自动连」必然失败，
+   * 用户只能自己去浏览器点一次。现在改成退避重试（约 8 分钟），直到成功或次数用完。
+   */
   const kick = () => {
-    try {
-      const t = setTimeout(() => {
-        runCore(['ensure'], 60_000)
-          .then((r) => {
-            log(`启动自检：${r.action === 'none' ? '已在线' : (r.ok ? '已登录' : '登录失败：' + (r.detail || r.error || ''))}`)
-            reactToResult(r)
-          })
-          .catch(() => {})
-      }, 8000)   // 等宿主和其它插件先起来
-      t.unref?.()
-    } catch { /* 忽略 */ }
+    const DELAYS = [8000, 15000, 25000, 45000, 60000, 90000, 120000, 180000]
+    const attempt = (i) => {
+      runCore(['ensure'], 60_000)
+        .then((r) => {
+          const ok = !!(r && r.ok)
+          log(`启动自检 #${i + 1}：${r && r.action === 'none' ? '已在线' : (ok ? '已登录' : '失败：' + ((r && (r.detail || r.error)) || '未知'))}`)
+          reactToResult(r)
+          if (!ok && i + 1 < DELAYS.length) {
+            const t = setTimeout(() => attempt(i + 1), DELAYS[i])
+            t.unref?.()
+          } else if (!ok) {
+            log('启动自检放弃：连续失败，等手动点「连接」或时间窗重试')
+          }
+        })
+        .catch((e) => {
+          log(`启动自检 #${i + 1} 抛错：${e?.message ?? e}`)
+          if (i + 1 < DELAYS.length) {
+            const t = setTimeout(() => attempt(i + 1), DELAYS[i])
+            t.unref?.()
+          }
+        })
+    }
+    const t = setTimeout(() => attempt(0), DELAYS[0])
+    t.unref?.()
   }
 
   ctx.inject(['webServer'], (webCtx) => {
