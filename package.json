@@ -1,6 +1,6 @@
 {
   "name": "dsh-campus-net",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "校园网（Srun 深澜）连接器：侧边栏小挂件，实时上下行速度、一键开关、开机自动连接、黑洞网卡检测、流量统计、多账号、非上网时段自动重试。",
   "type": "module",
   "main": "index.js",
