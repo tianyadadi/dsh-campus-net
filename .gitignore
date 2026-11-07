@@ -19,3 +19,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Graphify 本地图谱产物（可随时 graphify extract 重建）
+graphify-out/
